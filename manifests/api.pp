@@ -45,13 +45,7 @@ class aptly::api (
 
   validate_re($log, ['^none|log$'], 'Valid values for $log: none, log')
 
-  if $::operatingsystem == 'Ubuntu' and versioncmp($::operatingsystemrelease, '15.04') < 0 {
-    file { 'aptly-upstart':
-      path    => '/etc/init/aptly-api.conf',
-      content => template('aptly/etc/aptly-api.init.erb'),
-      notify  => Service['aptly-api'],
-    }
-  } else {
+  if $::aptly_get_init =~ 'systemd' {
     file { 'aptly-systemd':
       path    => '/etc/systemd/system/aptly-api.service',
       content => template('aptly/etc/aptly-api.systemd.erb'),
@@ -61,6 +55,21 @@ class aptly::api (
       path        => [ '/usr/bin', '/bin', '/usr/sbin' ],
       refreshonly => true,
       notify      => Service['aptly-api'],
+    }
+  } elsif $::aptly_get_init =~ 'upstart' {
+    file { 'aptly-upstart':
+      path    => '/etc/init/aptly-api.conf',
+      content => template('aptly/etc/aptly-api.init.erb'),
+      notify  => Service['aptly-api'],
+    }
+  } else {
+    file { 'aptly-sysvinit':
+      path    => '/etc/init.d/aptly-api',
+      owner   => 'root',
+      group   => 'root',
+      mode    => '0755',
+      content => template('aptly/etc/aptly-api.sysvinit.erb'),
+      notify  => Service['aptly-api'],
     }
   }
 

@@ -1,0 +1,96 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          aptly-api
+# Required-Start:    $network $named
+# Required-Stop:     $network $named
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Start daemon at boot time
+# Description:       Enable service provided by daemon.
+### END INIT INFO
+
+set -e
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+CONSUMERCMDLINE="/usr/bin/aptly api serve -listen=<%= @listen %><% if @enable_cli_and_http %> -no-lock<% end %><% if @enable_cli_and_http %> | logger -t aptly<% end %>"
+PIDFILE="/var/run/aptly-api.pid"
+STOP_SCHEDULE="TERM/30/KILL/5"
+
+test -x `which aptly` || exit 1
+
+. /lib/init/vars.sh
+. /lib/lsb/init-functions
+
+# Functions
+start_function() {
+    # Should always exit 0. We will use the RET var afterwards
+    start-stop-daemon --start --quiet --pidfile "${PIDFILE}" \
+    --make-pidfile --user "<%= @user %>" --group "<%= @group %>" \
+    --background --startas /bin/bash -- -c "${CONSUMERCMDLINE}" || RET=$?
+}
+
+stop_function() {
+    # Check if we have a pid file
+    if [ ! -f "${PIDFILE}" ] ; then
+        RET=1
+        return 0
+    fi
+
+    RET=0 # For the case that start-stop-daemon exits normally
+    # Go through every possible PID within the PIDFILE to stop all processes
+    for PID in $(cat "${PIDFILE}"); do
+        # Since we're using bash to start the app and logger, we have to stop them by closing bash with the parent pid method
+        start-stop-daemon --stop --quiet --retry "${STOP_SCHEDULE}" --ppid "${PID}" || RET=$?
+    done
+
+    # Upon successful stop of the processes, remove the pid file
+    [ ${RET} -eq 0 ] && rm -f "${PIDFILE}"
+}
+
+# Actions
+case "$1" in
+    start)
+        log_daemon_msg "Starting service" "aptly-api"
+        start_function
+        case "${RET}" in
+            0)  log_end_msg 0 ;;  # success
+            1)  log_progress_msg "... Process is already running"
+                log_end_msg 0 ;;  # process already started
+            *)  log_end_msg $? ;; # something weird happened
+        esac
+        ;;
+    stop)
+        log_daemon_msg "Stopping service" "aptly-api"
+        stop_function
+        case "${RET}" in
+            0)  log_progress_msg "stopped"
+                log_end_msg 0 ;; # success
+            1)  log_progress_msg "... Process not running"
+                log_end_msg 0 ;; # process wasn't running
+            2)  log_end_msg 2 ;; # process is still running
+            *)  log_end_msg $? ;; # something weird happened
+        esac
+        ;;
+    restart)
+        log_daemon_msg "Restarting service" "aptly-api"
+        stop_function
+        if [ ${RET} -ne 0 ] && [ ${RET} -ne 1 ] ; then
+            case "${RET}" in
+                2)  log_end_msg 2 ;; # process is still running
+                *)  log_end_msg $? ;; # something weird happened
+            esac
+        fi
+        start_function
+        case "${RET}" in
+            0)  log_end_msg 0 ;;  # success
+            1)  log_progress_msg "... Process is already running"
+                log_end_msg 0 ;;  # process already started
+            *)  log_end_msg $? ;; # something weird happened
+        esac
+        ;;
+    status)
+        status_of_proc -p "${PIDFILE}" \
+            "`which aptly`" \
+            "aptly-api" && exit 0 || exit $?
+    ;;
+esac
